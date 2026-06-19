@@ -9,26 +9,15 @@ COPY git-ask-pass /
 RUN mamba install -y -c conda-forge \
     python==3.11 \
     ipykernel==6.29.5 \
-    hdbscan \
     && conda clean -ya
 
-# install libraries for opencv-python
+# system libs for zarr / scikit-image / lightgbm
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libxcb1 libgl1 libglib2.0-0
+    libgl1 libglib2.0-0 libgomp1
 RUN apt-get clean && rm -rf /var/lib/apt/lists/*
 
-RUN pip install -U --no-cache-dir \
-    suite2p \
-    aind-session \
-    aind-codeocean-utils \
-    aind-data-access-api \
-    aind-ophys-utils \
-    aind-data-schema==1.2.0 \
-    numpy==1.26.4 \
-    codeocean==0.14.0 \
-    ipywidgets
-    
-
+# postInstall clones + installs mfish-roi-classifier (which pins its own deps via
+# pyproject and vendors the trained model in models/).
 COPY postInstall /
 RUN --mount=type=secret,id=secrets . /run/secrets/secrets \
     && /postInstall
