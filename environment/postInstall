@@ -6,5 +6,5 @@ set -euxo pipefail
 # tifffile, tqdm) and the repo vendors the trained model under models/ — which
 # run_capsule.py points MFISH_MODELS_DIR at by default.
 cd /
-git clone https://github.com/AllenNeuralDynamics/mfish-roi-classifier
+git clone https://github.com/jkim0731/mfish-roi-classifier
 cd /mfish-roi-classifier && pip install -e .

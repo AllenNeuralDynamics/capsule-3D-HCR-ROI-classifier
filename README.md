@@ -4,7 +4,7 @@ Reproducible-run CodeOcean capsule that scores each cell in a 3-D HCR
 segmentation for **quality** — `good`, `bad_ok`, `bad`, `merged` — and writes the
 per-cell class-probability **contract** consumed by the coregistration matcher.
 
-It wraps the [`mfish-roi-classifier`](https://github.com/AllenNeuralDynamics/mfish-roi-classifier)
+It wraps the [`mfish-roi-classifier`](https://github.com/jkim0731/mfish-roi-classifier)
 package (installed in `environment/postInstall`). The model is **self-contained**:
 **100 µm features, 405-only** (no upstream model, no other channels).
 
