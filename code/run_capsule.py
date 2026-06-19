@@ -9,17 +9,42 @@ intensity / adjacency / neighbour-quality, 405-only, self-contained) — and
     {sid}_roi_quality_proba.parquet    contract: hcr_id, p_bad, p_bad_ok,
                                         p_good, p_merged, human_label
 
-Data resolution (mfish-roi-classifier): the subject's coreg + HCR-processed
-assets are globbed under MFISH_DATA_ROOT (= --input_dir) as
-``{sid}*ctl-czstack-hcr-coreg_*`` and ``HCR_{sid}_*_processed_*``.
-The model is read from --models_dir (defaults to the vendored model in the
-installed repo; point at a mounted model asset to override).
+Data resolution (mfish-roi-classifier): the subject's HCR-processed asset is globbed
+under MFISH_DATA_ROOT (= --input_dir) as ``HCR_{sid}_*_processed_*`` — no coreg dir is
+needed (the 405-only classifier uses HCR data only).
+
+Model: the CodeOcean **model data asset attached under --input_dir** is the source of
+truth. It is auto-detected by FORMAT — a directory holding ``roi_quality_4class.txt`` +
+``roi_quality_meta.json`` — not a fixed asset name/path, so the model can be re-registered
+and re-attached without changing this code. Override with --models_dir.
 """
 import argparse
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+
+def _find_model_dir(data_root: Path) -> Path:
+    """Locate the attached model under `data_root` by its FORMAT — a directory holding both
+    roi_quality_4class.txt and roi_quality_meta.json — rather than a fixed asset name/path.
+    Checks each attached asset dir and its immediate subdirs (covers a plain model asset or
+    an MLflow pyfunc ``artifacts/`` layout) without descending into large data trees such as
+    the HCR segmentation zarrs."""
+    def _is_model(d: Path) -> bool:
+        return (d / "roi_quality_4class.txt").exists() and (d / "roi_quality_meta.json").exists()
+    for top in sorted(p for p in data_root.iterdir() if p.is_dir()):
+        if _is_model(top):
+            return top
+        try:
+            for sub in sorted(s for s in top.iterdir() if s.is_dir()):
+                if _is_model(sub):
+                    return sub
+        except OSError:
+            continue
+    raise FileNotFoundError(
+        f"no ROI-quality model found under {data_root} — expected a directory with "
+        f"roi_quality_4class.txt + roi_quality_meta.json (attach the model data asset).")
 
 
 def main() -> int:
@@ -30,10 +55,10 @@ def main() -> int:
                     help="Mounted data root holding the subject's coreg + HCR-processed assets.")
     ap.add_argument("--output_dir", default="/root/capsule/results",
                     help="Output asset directory for the feature matrix + proba contract.")
-    ap.add_argument("--models_dir", default="/mfish-roi-classifier/models",
-                    help="Directory with roi_quality_{binary,4class}.txt + roi_quality_meta.json. "
-                         "Defaults to the vendored model in the installed repo; set to a mounted "
-                         "model asset to override.")
+    ap.add_argument("--models_dir", default="",
+                    help="Directory with roi_quality_4class.txt + roi_quality_meta.json. "
+                         "Default: auto-detect the attached model data asset under --input_dir "
+                         "by format. Set to override.")
     ap.add_argument("--feat_workers", type=int, default=0,
                     help="Feature-extraction worker processes (0 = package default, cpu-2).")
     args = ap.parse_args()
@@ -45,11 +70,14 @@ def main() -> int:
     out = Path(args.output_dir); out.mkdir(parents=True, exist_ok=True)
     cache = Path("/root/capsule/scratch/mfish_cache"); cache.mkdir(parents=True, exist_ok=True)
 
+    models_dir = args.models_dir or str(_find_model_dir(Path(args.input_dir)))
+    print(f"[capsule] model dir: {models_dir}", flush=True)
+
     env = os.environ.copy()
     env["MFISH_DATA_ROOT"] = args.input_dir
     env["MFISH_ROI_QUALITY_DIR"] = str(out)    # features_all + proba contract -> output asset
     env["MFISH_CACHE_DIR"] = str(cache)        # regenerable tight-bbox cache -> scratch
-    env["MFISH_MODELS_DIR"] = args.models_dir
+    env["MFISH_MODELS_DIR"] = models_dir
     if args.feat_workers > 0:
         env["MFISH_FEAT_WORKERS"] = str(args.feat_workers)
 
