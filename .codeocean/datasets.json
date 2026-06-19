@@ -1,0 +1,9 @@
+{
+	"version": 1,
+	"attached_datasets": [
+		{
+			"id": "60273109-23bc-4ed9-9cae-2ce601bb54ee",
+			"mount": "model_3D-HCR-ROI_LGBM_4-class_2026-06-19_14-26-00"
+		}
+	]
+}
