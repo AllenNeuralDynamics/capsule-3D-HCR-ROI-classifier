@@ -1,9 +1,10 @@
 metadata_version: 1
 name: 3D HCR ROI-quality classifier
-description: "Per-cell quality classification (good / bad_ok / bad / merged) of 3-D
+description: 'Per-cell quality classification (good / bad_ok / bad / merged) of 3-D
   HCR cell segmentations. Reproducible run: extract per-cell µm features (405-only,
   self-contained) and predict class probabilities for one subject; writes the feature
-  matrix and the class-probability contract parquet consumed by the coregistration matcher."
+  matrix and the class-probability contract parquet consumed by the coregistration
+  matcher.'
 tags:
 - 3D-HCR-ROI-classifier
 - mfish
