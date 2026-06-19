@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
+# cache bust 260619-01  (bump to force an env rebuild so the package main is re-cloned)
+
 # Install the 3-D HCR ROI-quality classifier. Its pyproject pins the runtime deps
 # (numpy, pandas, scipy, scikit-image, zarr, lightgbm, scikit-learn, pyarrow,
-# tifffile, tqdm) and the repo vendors the trained model under models/ — which
-# run_capsule.py points MFISH_MODELS_DIR at by default.
+# tifffile, tqdm). run_capsule.py auto-detects the model from the attached /data
+# model asset by format — no vendored model is used at run time.
 cd /
 git clone https://github.com/jkim0731/mfish-roi-classifier
 cd /mfish-roi-classifier && pip install -e .
