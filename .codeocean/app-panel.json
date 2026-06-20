@@ -9,8 +9,7 @@
 			"description": "HCR subject id to process (e.g. 790322)",
 			"help_text": "The capsule globs the matching coreg + HCR-processed data assets under /root/capsule/data ({sid}*ctl-czstack-hcr-coreg_* and HCR_{sid}_*_processed_*).",
 			"type": "text",
-			"value_type": "string",
-			"default_value": ""
+			"value_type": "string"
 		},
 		{
 			"id": "Mv3bJ8tHcYeU5gNq",
@@ -18,6 +17,17 @@
 			"param_name": "feat_workers",
 			"description": "Feature-extraction worker processes (0 = auto, cpu-2)",
 			"help_text": "Parallelism for the z-strip feature extraction. 0 uses the package default (cpu-2).",
+			"type": "text",
+			"value_type": "integer",
+			"default_value": "0",
+			"minimum": 0
+		},
+		{
+			"id": "KcSWPVUCwPOYYG6x",
+			"name": "max_cells",
+			"param_name": "max_cells",
+			"description": "SMOKE TEST: if \u003e0, extract features for only the N lowest-z ROIs",
+			"help_text": "SMOKE TEST: if \u003e0, extract features for only the N lowest-z ROIs",
 			"type": "text",
 			"value_type": "integer",
 			"default_value": "0",
