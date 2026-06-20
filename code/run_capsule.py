@@ -32,16 +32,10 @@ def _find_model_dir(data_root: Path) -> Path:
     an MLflow pyfunc ``artifacts/`` layout) without descending into large data trees such as
     the HCR segmentation zarrs."""
     def _is_model(d: Path) -> bool:
-        return (d / "roi_quality_4class.txt").exists() and (d / "roi_quality_meta.json").exists()
+        return (len(list(d.rglob("roi_quality_4class.txt"))) > 0) and (len(list(d.rglob("roi_quality_meta.json"))) > 0)        
     for top in sorted(p for p in data_root.iterdir() if p.is_dir()):
         if _is_model(top):
             return top
-        try:
-            for sub in sorted(s for s in top.iterdir() if s.is_dir()):
-                if _is_model(sub):
-                    return sub
-        except OSError:
-            continue
     raise FileNotFoundError(
         f"no ROI-quality model found under {data_root} — expected a directory with "
         f"roi_quality_4class.txt + roi_quality_meta.json (attach the model data asset).")
