@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-# cache bust 260619-01  (bump to force an env rebuild so the package main is re-cloned)
+# cache bust 260620-00  (bump to force an env rebuild so the package main is re-cloned)
 
 # Install the 3-D HCR ROI-quality classifier. Its pyproject pins the runtime deps
 # (numpy, pandas, scipy, scikit-image, zarr, lightgbm, scikit-learn, pyarrow,
