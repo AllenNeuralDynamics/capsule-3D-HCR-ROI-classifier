@@ -6,8 +6,9 @@ intensity / adjacency / neighbour-quality, 405-only, self-contained) — and
 (2) runs the classifier, writing to the output asset:
 
     {sid}_features_all.parquet         per-cell feature matrix (100 features)
-    {sid}_roi_quality_proba.parquet    contract: hcr_id, p_bad, p_bad_ok,
-                                        p_good, p_merged, human_label
+    {sid}_roi_quality_proba.parquet    contract: hcr_id, p_bad, p_bad_ok, p_good, p_merged
+
+Human labels are NOT part of this contract — labeling is a separate, later step.
 
 Data resolution (mfish-roi-classifier): the subject's HCR-processed asset is globbed
 under MFISH_DATA_ROOT (= --input_dir) as ``HCR_{sid}_*_processed_*`` — no coreg dir is
@@ -20,6 +21,8 @@ MLflow-on-CodeOcean ``{asset}/{name}/model/artifacts/`` layout works without ass
 files sit at the top of the asset. Override with --models_dir.
 
 Build + predict run **in-process** (direct library calls), not via the CLI subprocess.
+``--max_cells N`` runs a quick smoke test on only the N lowest-z ROIs (a narrow z-band →
+few strips), without touching the production caches.
 """
 import argparse
 import os
@@ -59,6 +62,9 @@ def main() -> int:
                          "by format (any depth). Set to override.")
     ap.add_argument("--feat_workers", type=int, default=0,
                     help="Feature-extraction worker processes (0 = package default, cpu-2).")
+    ap.add_argument("--max_cells", type=int, default=0,
+                    help="SMOKE TEST: if >0, extract features for only the N lowest-z ROIs "
+                         "(a narrow z-band → few strips → fast); no production caches written.")
     args = ap.parse_args()
 
     sid = str(args.subject_id).strip()
@@ -87,33 +93,28 @@ def main() -> int:
     from roi_classifier.benchmark_data_loader import load_subject
     from roi_classifier.feat_tight_bbox import build_tight_bbox
     from roi_classifier.features import extract_features
-    from roi_classifier.model import predict, _load_label_log, _active_labels
-    import pandas as pd
+    from roi_classifier.model import predict, FEATURE_COLUMNS
 
-    # 1) build features: tight-bbox (locate cells) -> unified single-pass extraction
-    print(f"[build-features] subject={sid}", flush=True)
+    limit = max(0, int(args.max_cells))
+    print(f"[build-features] subject={sid}" + (f"  [SMOKE TEST: {limit} ROIs]" if limit else ""), flush=True)
     s = load_subject(sid)
-    build_tight_bbox(s, cache=True, force=False)
-    feat_shape.compute(s, cache=True)                # -> {sid}_features_all.parquet in out
+    if limit:
+        # Quick smoke test: keep only the N lowest-z ROIs (contiguous z → few strips).
+        # cache=False so the production tight-bbox / feature parquet caches aren't touched.
+        s.hcr_centroids = s.hcr_centroids.nsmallest(limit, "z_px").reset_index(drop=True)
+        build_tight_bbox(s, cache=False, force=True)
+        feat = feat_shape.compute(s, cache=False)[["hcr_id"] + FEATURE_COLUMNS]
+        feat.to_parquet(out / f"{sid}_features_all.parquet", index=False)
+    else:
+        build_tight_bbox(s, cache=True, force=False)
+        feat_shape.compute(s, cache=True)            # -> {sid}_features_all.parquet in out
+        feat = extract_features(sid)                 # reads the cached feature parquet
 
-    # 2) predict -> contract parquet (hcr_id, p_bad, p_bad_ok, p_good, p_merged, human_label)
+    # ── predict -> contract parquet (hcr_id, p_bad, p_bad_ok, p_good, p_merged) ──
     print(f"[predict] subject={sid}  (model dir: {cfg.MODELS_DIR})", flush=True)
-    feat = extract_features(sid)                      # reads the cached feature parquet
     _binary_score, four_class_proba = predict(feat)
     contract = four_class_proba[["hcr_id", "bad", "bad_ok", "good", "merged"]].rename(
         columns={"bad": "p_bad", "bad_ok": "p_bad_ok", "good": "p_good", "merged": "p_merged"})
-
-    # human_label: null for inference; populated if a label log happens to be present.
-    contract["human_label"] = pd.NA
-    label_log = cfg.ROI_QUALITY_DIR / "roi_qc_actions.jsonl"
-    if label_log.exists():
-        try:
-            labs = _active_labels(_load_label_log(label_log), sid)
-            if not labs.empty:
-                contract = contract.drop(columns=["human_label"]).merge(
-                    labs.rename(columns={"label": "human_label"}), on="hcr_id", how="left")
-        except Exception as e:  # noqa: BLE001
-            print(f"  [warn] could not attach human labels: {e}", flush=True)
 
     proba_path = out / f"{sid}_roi_quality_proba.parquet"
     contract.to_parquet(proba_path, index=False)
