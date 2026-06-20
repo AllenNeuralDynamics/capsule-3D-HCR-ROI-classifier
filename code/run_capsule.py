@@ -14,31 +14,35 @@ under MFISH_DATA_ROOT (= --input_dir) as ``HCR_{sid}_*_processed_*`` — no core
 needed (the 405-only classifier uses HCR data only).
 
 Model: the CodeOcean **model data asset attached under --input_dir** is the source of
-truth. It is auto-detected by FORMAT — a directory holding ``roi_quality_4class.txt`` +
-``roi_quality_meta.json`` — not a fixed asset name/path, so the model can be re-registered
-and re-attached without changing this code. Override with --models_dir.
+truth. It is auto-detected by FORMAT at ANY depth — the directory that actually contains
+``roi_quality_4class.txt`` + ``roi_quality_meta.json`` (found via rglob), so the
+MLflow-on-CodeOcean ``{asset}/{name}/model/artifacts/`` layout works without assuming the
+files sit at the top of the asset. Override with --models_dir.
+
+Build + predict run **in-process** (direct library calls), not via the CLI subprocess.
 """
 import argparse
 import os
-import subprocess
 import sys
 from pathlib import Path
 
 
 def _find_model_dir(data_root: Path) -> Path:
-    """Locate the attached model under `data_root` by its FORMAT — a directory holding both
-    roi_quality_4class.txt and roi_quality_meta.json — rather than a fixed asset name/path.
-    Checks each attached asset dir and its immediate subdirs (covers a plain model asset or
-    an MLflow pyfunc ``artifacts/`` layout) without descending into large data trees such as
-    the HCR segmentation zarrs."""
-    def _is_model(d: Path) -> bool:
-        return (len(list(d.rglob("roi_quality_4class.txt"))) > 0) and (len(list(d.rglob("roi_quality_meta.json"))) > 0)        
+    """Locate the model by FORMAT: the directory that actually contains BOTH
+    roi_quality_4class.txt and roi_quality_meta.json, at any depth (rglob) — handles a
+    plain model asset or the MLflow-on-CodeOcean ``{asset}/{name}/model/artifacts/`` layout.
+    Returns that exact directory so MFISH_MODELS_DIR points right at the files. The large
+    HCR_* data asset is skipped so rglob never walks the segmentation zarr."""
     for top in sorted(p for p in data_root.iterdir() if p.is_dir()):
-        if _is_model(top):
-            return top
+        if top.name.startswith("HCR_"):
+            continue   # the terabyte-scale HCR data asset is never the model
+        meta = next((m for m in top.rglob("roi_quality_meta.json")
+                     if (m.parent / "roi_quality_4class.txt").exists()), None)
+        if meta is not None:
+            return meta.parent
     raise FileNotFoundError(
-        f"no ROI-quality model found under {data_root} — expected a directory with "
-        f"roi_quality_4class.txt + roi_quality_meta.json (attach the model data asset).")
+        f"no ROI-quality model found under {data_root} — expected a directory (at any depth) "
+        f"with roi_quality_4class.txt + roi_quality_meta.json (attach the model data asset).")
 
 
 def main() -> int:
@@ -46,13 +50,13 @@ def main() -> int:
         description="HCR ROI-quality: extract per-cell features + predict for one subject.")
     ap.add_argument("--subject_id", required=True, help="HCR subject id, e.g. 790322")
     ap.add_argument("--input_dir", default="/root/capsule/data",
-                    help="Mounted data root holding the subject's coreg + HCR-processed assets.")
+                    help="Mounted data root holding the subject's HCR-processed asset + model asset.")
     ap.add_argument("--output_dir", default="/root/capsule/results",
                     help="Output asset directory for the feature matrix + proba contract.")
     ap.add_argument("--models_dir", default="",
                     help="Directory with roi_quality_4class.txt + roi_quality_meta.json. "
                          "Default: auto-detect the attached model data asset under --input_dir "
-                         "by format. Set to override.")
+                         "by format (any depth). Set to override.")
     ap.add_argument("--feat_workers", type=int, default=0,
                     help="Feature-extraction worker processes (0 = package default, cpu-2).")
     args = ap.parse_args()
@@ -67,20 +71,53 @@ def main() -> int:
     models_dir = args.models_dir or str(_find_model_dir(Path(args.input_dir)))
     print(f"[capsule] model dir: {models_dir}", flush=True)
 
-    env = os.environ.copy()
-    env["MFISH_DATA_ROOT"] = args.input_dir
-    env["MFISH_ROI_QUALITY_DIR"] = str(out)    # features_all + proba contract -> output asset
-    env["MFISH_CACHE_DIR"] = str(cache)        # regenerable tight-bbox cache -> scratch
-    env["MFISH_MODELS_DIR"] = models_dir
+    # Configure the package via env BEFORE importing it: config.py reads these at import,
+    # and model.py loads FEATURE_COLUMNS from the model meta at import. (os.environ is
+    # inherited by feat_shape's multiprocessing workers.)
+    os.environ["MFISH_DATA_ROOT"] = args.input_dir
+    os.environ["MFISH_ROI_QUALITY_DIR"] = str(out)   # features_all + proba contract -> output asset
+    os.environ["MFISH_CACHE_DIR"] = str(cache)       # regenerable tight-bbox cache -> scratch
+    os.environ["MFISH_MODELS_DIR"] = models_dir
     if args.feat_workers > 0:
-        env["MFISH_FEAT_WORKERS"] = str(args.feat_workers)
+        os.environ["MFISH_FEAT_WORKERS"] = str(args.feat_workers)
 
-    def run(*cmd: str) -> None:
-        print("+ roi-classifier", *cmd, flush=True)
-        subprocess.run([sys.executable, "-m", "roi_classifier.cli", *cmd], check=True, env=env)
+    # ── in-process: build features, then predict (no CLI subprocess) ─────────────
+    from roi_classifier import config as cfg
+    from roi_classifier import feat_shape
+    from roi_classifier.benchmark_data_loader import load_subject
+    from roi_classifier.feat_tight_bbox import build_tight_bbox
+    from roi_classifier.features import extract_features
+    from roi_classifier.model import predict, _load_label_log, _active_labels
+    import pandas as pd
 
-    run("build-features", sid)   # tight-bbox + unified single-pass extraction
-    run("predict", sid)          # inference -> {sid}_roi_quality_proba.parquet
+    # 1) build features: tight-bbox (locate cells) -> unified single-pass extraction
+    print(f"[build-features] subject={sid}", flush=True)
+    s = load_subject(sid)
+    build_tight_bbox(s, cache=True, force=False)
+    feat_shape.compute(s, cache=True)                # -> {sid}_features_all.parquet in out
+
+    # 2) predict -> contract parquet (hcr_id, p_bad, p_bad_ok, p_good, p_merged, human_label)
+    print(f"[predict] subject={sid}  (model dir: {cfg.MODELS_DIR})", flush=True)
+    feat = extract_features(sid)                      # reads the cached feature parquet
+    _binary_score, four_class_proba = predict(feat)
+    contract = four_class_proba[["hcr_id", "bad", "bad_ok", "good", "merged"]].rename(
+        columns={"bad": "p_bad", "bad_ok": "p_bad_ok", "good": "p_good", "merged": "p_merged"})
+
+    # human_label: null for inference; populated if a label log happens to be present.
+    contract["human_label"] = pd.NA
+    label_log = cfg.ROI_QUALITY_DIR / "roi_qc_actions.jsonl"
+    if label_log.exists():
+        try:
+            labs = _active_labels(_load_label_log(label_log), sid)
+            if not labs.empty:
+                contract = contract.drop(columns=["human_label"]).merge(
+                    labs.rename(columns={"label": "human_label"}), on="hcr_id", how="left")
+        except Exception as e:  # noqa: BLE001
+            print(f"  [warn] could not attach human labels: {e}", flush=True)
+
+    proba_path = out / f"{sid}_roi_quality_proba.parquet"
+    contract.to_parquet(proba_path, index=False)
+    print(f"  contract -> {proba_path}  shape={contract.shape}  cols={list(contract.columns)}", flush=True)
 
     print(f"[capsule] subject {sid} done. Outputs in {out}:", flush=True)
     for f in sorted(out.glob(f"{sid}_*.parquet")):
