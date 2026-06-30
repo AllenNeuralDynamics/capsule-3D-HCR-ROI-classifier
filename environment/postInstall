@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euxo pipefail
 
-# cache bust 260620-00  (bump to force an env rebuild so the package main is re-cloned)
+# cache bust 260630-00  (bump to force an env rebuild so the package main is re-cloned)
 
 # Install the 3-D HCR ROI-quality classifier. Its pyproject pins the runtime deps
 # (numpy, pandas, scipy, scikit-image, zarr, lightgbm, scikit-learn, pyarrow,
@@ -10,3 +10,9 @@ set -euxo pipefail
 cd /
 git clone https://github.com/jkim0731/mfish-roi-classifier
 cd /mfish-roi-classifier && pip install -e .
+
+# docDB integration: the vendored code/json_utils.py (lamf_analysis.code_ocean.json_utils)
+# writes data_description.json + processing.json for the captured asset and hard-requires
+# aind-data-schema==1.2.0. No numpy pin (deps: pydantic>=2.7, aind-data-schema-models, …),
+# so it coexists with the classifier's pins.
+pip install --no-cache-dir "aind-data-schema==1.2.0"

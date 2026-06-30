@@ -25,10 +25,26 @@ Build + predict run **in-process** (direct library calls), not via the CLI subpr
 few strips), using an isolated temporary cache so the production caches are untouched.
 """
 import argparse
+import datetime
 import os
 import sys
 import tempfile
 from pathlib import Path
+
+import json_utils  # vendored lamf_analysis.code_ocean.json_utils (docDB schema files)
+
+# docDB / aind-data-schema metadata for the captured derived asset. SUFFIX is the process
+# name appended to the source name -> derived name "HCR_<sid>_<acq-dt>_HCR-ROI-label_<dt>"
+# (the established ROI-label asset naming). PROCESS_LEVEL='subject' writes data_description.json
+# + processing.json (lineage to the source HCR asset); HCR is subject-level.
+SUFFIX = "HCR-ROI-label"
+PROCESS_LEVEL = "subject"
+INPUT_PROCESSING_DICT = {
+    "name": "Other",
+    "software_version": "0.1.0",
+    "code_url": "https://codeocean.allenneuraldynamics.org/capsule/6697073/tree",
+    "notes": "3D-FISH/HCR per-cell ROI-quality classification (4-class probability contract)",
+}
 
 
 def _find_model_dir(data_root: Path) -> Path:
@@ -68,6 +84,7 @@ def main() -> int:
                          "(a narrow z-band → few strips → fast); uses an isolated temp cache.")
     args = ap.parse_args()
 
+    start_date_time = datetime.datetime.now()
     sid = str(args.subject_id).strip()
     if not sid:
         raise SystemExit("subject_id is required (e.g. --subject_id 790322)")
@@ -130,8 +147,24 @@ def main() -> int:
     contract.to_parquet(proba_path, index=False)
     print(f"  contract -> {proba_path}  shape={contract.shape}  cols={list(contract.columns)}", flush=True)
 
+    # ── docDB-compliant schema files (data_description.json + processing.json) ───
+    # Lineage source = the processed HCR asset this run consumed.
+    source_asset_name = Path(s.hcr_dir).name.split("_processed_")[0]
+    run_parameters = {
+        "subject_id": sid,
+        "feat_workers": int(args.feat_workers),
+        "max_cells": int(args.max_cells),
+    }
+    print(f"[capsule] writing docDB schema json (source={source_asset_name}, "
+          f"process={SUFFIX})", flush=True)
+    json_utils.process_json_files(
+        source_asset_name, source_asset_name, start_date_time, run_parameters,
+        INPUT_PROCESSING_DICT, SUFFIX, PROCESS_LEVEL)
+
     print(f"[capsule] subject {sid} done. Outputs in {out}:", flush=True)
     for f in sorted(out.glob(f"{sid}_*.parquet")):
+        print("    ", f.name, flush=True)
+    for f in sorted(out.glob("*.json")):
         print("    ", f.name, flush=True)
     return 0
 
