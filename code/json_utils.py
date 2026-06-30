@@ -117,17 +117,28 @@ def process_json_files(source_asset_name: str, # data asset name of the source
         copy_core_json(source_asset_name)
 
     data_description_json_path = next(DATA_PATH.glob(f'*{source_asset_name}*/data_description.json'), None)
-    if data_description_json_path is None:
-        # VENDORED-LOCAL FIX vs upstream: do NOT fall back to base_data_description_json(), which
-        # hardcodes Modality.POPHYS + Platform.MULTIPLANE_OPHYS and would silently mislabel an
-        # HCR/mFISH-sourced derived asset with the wrong modality/platform. Fail loud so the user
-        # attaches the processed-HCR source asset (whose data_description.json carries SPIM/HCR).
-        raise FileNotFoundError(
-            f"source data_description.json not found for '{source_asset_name}' under {DATA_PATH} "
-            f"- attach the processed-HCR source asset so the derived asset inherits the correct "
-            f"modality/platform (NOT the multiplane-ophys base fallback).")
-    with data_description_json_path.open('r') as f:
-        processed_data_description_json = json.load(f)
+    if data_description_json_path is not None:
+        with data_description_json_path.open('r') as f:
+            processed_data_description_json = json.load(f)
+    else:
+        # Some HCR processed assets ship WITHOUT a data_description.json. Fall back to the shipped
+        # sample HCR data_description (correct SPIM/HCR institution / platform / modality / funding /
+        # investigators) rather than upstream's base_data_description_json(), which hardcodes
+        # POPHYS / MULTIPLANE_OPHYS and would mislabel the asset. Per-asset fields are fixed up:
+        # subject_id here; name + creation_time in get_data_description_dict; lineage/input comes from
+        # capture_name in DerivedDataDescription.from_data_description (so the sample's subject_id /
+        # name / input_data_name are NOT inherited).
+        sample = Path(__file__).parent / 'sample_HCR_data_description.json'
+        if not sample.exists():
+            raise FileNotFoundError(
+                f"source data_description.json not found for '{source_asset_name}' under {DATA_PATH}, "
+                f"and no fallback sample at {sample}. Attach the processed-HCR source asset, or ship "
+                f"sample_HCR_data_description.json next to json_utils.py.")
+        print(f"No data_description.json in source asset; using fallback sample "
+              f"'{sample.name}' (subject_id -> {subject_id})")
+        with sample.open('r') as f:
+            processed_data_description_json = json.load(f)
+        processed_data_description_json['subject_id'] = subject_id  # the REAL subject, not the sample's
     
     end_date_time = datetime.datetime.now()
     data_description_dict = get_data_description_dict(capture_name, source_asset_name, processed_data_description_json)
