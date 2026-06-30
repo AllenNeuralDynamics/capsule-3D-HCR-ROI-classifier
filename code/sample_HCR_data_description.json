@@ -1,0 +1,84 @@
+{
+   "describedBy": "https://raw.githubusercontent.com/AllenNeuralDynamics/aind-data-schema/main/src/aind_data_schema/core/data_description.py",
+   "schema_version": "1.0.3",
+   "license": "CC-BY-4.0",
+   "platform": {
+      "name": "SmartSPIM platform",
+      "abbreviation": "SmartSPIM"
+   },
+   "subject_id": "788406",
+   "creation_time": "2026-06-30T20:25:30.007697Z",
+   "label": null,
+   "name": "HCR_788406_2025-11-05_13-00-00_HCR-ROI-label_2026-06-30_20-25-30",
+   "institution": {
+      "name": "Allen Institute for Neural Dynamics",
+      "abbreviation": "AIND",
+      "registry": {
+         "name": "Research Organization Registry",
+         "abbreviation": "ROR"
+      },
+      "registry_identifier": "04szwah67"
+   },
+   "funding_source": [
+      {
+         "funder": {
+            "name": "Allen Institute",
+            "abbreviation": "AI",
+            "registry": {
+               "name": "Research Organization Registry",
+               "abbreviation": "ROR"
+            },
+            "registry_identifier": "03cpe7c52"
+         },
+         "grant_number": null,
+         "fundee": "Marina Garrett, Peter Groblewski, Shawn Olsen"
+      },
+      {
+         "funder": {
+            "name": "National Institute of Mental Health",
+            "abbreviation": "NIMH",
+            "registry": {
+               "name": "Research Organization Registry",
+               "abbreviation": "ROR"
+            },
+            "registry_identifier": "04xeg9z08"
+         },
+         "grant_number": "U01MH130907",
+         "fundee": "Marina Garrett"
+      }
+   ],
+   "data_level": "derived",
+   "group": null,
+   "investigators": [
+      {
+         "name": "Marina Garrett",
+         "abbreviation": null,
+         "registry": null,
+         "registry_identifier": null
+      },
+      {
+         "name": "Peter Groblewski",
+         "abbreviation": null,
+         "registry": null,
+         "registry_identifier": null
+      },
+      {
+         "name": "Shawn Olsen",
+         "abbreviation": null,
+         "registry": null,
+         "registry_identifier": null
+      }
+   ],
+   "project_name": null,
+   "restrictions": null,
+   "modality": [
+      {
+         "name": "Selective plane illumination microscopy",
+         "abbreviation": "SPIM"
+      }
+   ],
+   "related_data": [],
+   "data_summary": null,
+   "input_data_name": "HCR_788406_2025-11-05_13-00-00",
+   "process_name": "HCR-ROI-label"
+}
